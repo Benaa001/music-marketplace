@@ -9,7 +9,7 @@ module music_marketplace::music_marketplace {
     use sui::tx_context::{Self, TxContext};
     use std::option::{Option, none, some, is_some, contains, borrow};
     use std::string::{String};
-    
+
     // Errors
     const EInvalidBid: u64 = 1;
     const EInvalidMusic: u64 = 2;
@@ -19,6 +19,8 @@ module music_marketplace::music_marketplace {
     const EInvalidWithdrawal: u64 = 6;
     const EInsufficientEscrow: u64 = 7;
     const ERROR_INVALID_CAP: u64 = 8;
+    const EUnauthorized: u64 = 9;
+    const ENoTickets: u64 = 10;
 
     // Struct definitions
 
@@ -49,21 +51,21 @@ module music_marketplace::music_marketplace {
         id: UID,
         musician_id: ID,
     }
-    
+
     // TrackRecord Struct
     struct TrackRecord has key, store {
         id: UID,
         musician: address,
     }
 
-       // Liquidity Pool struct
+    // Liquidity Pool struct
     struct LiquidityPool has key, store {
         id: UID,
         pool: address,
         balance: Balance<SUI>,
     }
-    
-        // Collaboration Request struct
+
+    // Collaboration Request struct
     struct CollaborationRequest has key, store {
         id: UID,
         requester: address,
@@ -72,7 +74,7 @@ module music_marketplace::music_marketplace {
         accepted: bool,
     }
 
-        // Event struct
+    // Event struct
     struct Event has key, store {
         id: UID,
         musician: address,
@@ -87,7 +89,7 @@ module music_marketplace::music_marketplace {
     public entry fun get_track_description(track: &Musician): vector<u8> {
         track.bio
     }
-    
+
     public entry fun get_track_price(track: &Musician): u64 {
         track.price
     }
@@ -95,8 +97,8 @@ module music_marketplace::music_marketplace {
     public entry fun get_track_status(track: &Musician): vector<u8> {
         track.status
     }
-    
-        // Get event description
+
+    // Get event description
     public entry fun get_event_description(event: &Event): vector<u8> {
         event.description
     }
@@ -116,7 +118,6 @@ module music_marketplace::music_marketplace {
     // Add a track
     public entry fun add_track(name: String, bio: vector<u8>, genre: vector<u8>, price: u64, status: vector<u8>, ctx: &mut TxContext) {
         let track_id = object::new(ctx);
-
         transfer::share_object(Musician {
             id: track_id,
             name: name,
@@ -142,7 +143,7 @@ module music_marketplace::music_marketplace {
             track_id: object::id(track),
         });
     }
-    
+
     // Accept a bid (Musician)
     public entry fun accept_bid(track: &mut Musician, client: &mut Client, ctx: &mut TxContext) {
         assert!(track.musician == tx_context::sender(ctx), ENotMusician);
@@ -154,10 +155,9 @@ module music_marketplace::music_marketplace {
     public entry fun mark_track_sold(track: &mut Musician, client: &Client, ctx: &mut TxContext) {
         assert!(client.client == tx_context::sender(ctx), EInvalidMusic);
         assert!(object::id(track) == client.track_id, EInvalidMusic);
-
         track.trackSold = true;
     }
-    
+
     // Raise a complaint
     public entry fun dispute_track(track: &mut Musician, ctx: &mut TxContext) {
         assert!(track.musician == tx_context::sender(ctx), EDispute);
@@ -227,75 +227,30 @@ module music_marketplace::music_marketplace {
         let escrow_coin = coin::take(&mut track.escrow, amount, ctx);
         transfer::public_transfer(escrow_coin, tx_context::sender(ctx));
     }
-    
+
     // Update the track genre
     public entry fun update_track_genre(cap: &MusicianCap, track: &mut Musician, genre: vector<u8>, ctx: &mut TxContext) {
         assert!(cap.musician_id == object::id(track), ERROR_INVALID_CAP);
         assert!(track.musician == tx_context::sender(ctx), ENotMusician);
         track.genre = genre;
     }
-    
+
     // Update the track description
     public entry fun update_track_description(cap: &MusicianCap, track: &mut Musician, bio: vector<u8>, ctx: &mut TxContext) {
         assert!(cap.musician_id == object::id(track), ERROR_INVALID_CAP);
         assert!(track.musician == tx_context::sender(ctx), ENotMusician);
         track.bio = bio;
     }
-    
-    // Update the track price
-    public entry fun update_track_price(cap: &MusicianCap, track: &mut Musician, price: u64, ctx: &mut TxContext) {
+
+        // Update the track price
+    public entry fun update_track_price(cap: &MusicianCap, track: &mut Musician, new_price: u64, ctx: &mut TxContext) {
         assert!(cap.musician_id == object::id(track), ERROR_INVALID_CAP);
         assert!(track.musician == tx_context::sender(ctx), ENotMusician);
-        track.price = price;
+        track.price = new_price;
     }
 
-    // Update the track status
-    public entry fun update_track_status(cap: &MusicianCap, track: &mut Musician, status: vector<u8>, ctx: &mut TxContext) {
-        assert!(cap.musician_id == object::id(track), ERROR_INVALID_CAP);
-        assert!(track.musician == tx_context::sender(ctx), ENotMusician);
-        track.status = status;
-    }
-
-    // Rate the musician
-    public entry fun rate_musician(track: &mut Musician, client: &Client, rating: u64, ctx: &mut TxContext) {
-        assert!(client.client == tx_context::sender(ctx), EInvalidMusic);
-        assert!(object::id(track) == client.track_id, EInvalidMusic);
-        track.rating = some(rating);
-    }
-
-    // Add liquidity to the pool
-    public entry fun add_liquidity(pool: &mut LiquidityPool, amount: Coin<SUI>, ctx: &mut TxContext) {
-        balance::join(&mut pool.balance, coin::into_balance(amount));
-    }
-
-    // Remove liquidity from the pool
-    public entry fun remove_liquidity(pool: &mut LiquidityPool, amount: u64, ctx: &mut TxContext) {
-        assert!(balance::value(&pool.balance) >= amount, EInsufficientEscrow);
-        let coin = coin::take(&mut pool.balance, amount, ctx);
-        transfer::public_transfer(coin, tx_context::sender(ctx));
-    }
-    
-    // Request collaboration with another musician
-    public entry fun request_collaboration(track: &mut Musician, collaborator: address, ctx: &mut TxContext) {
-        assert!(track.musician == tx_context::sender(ctx), ENotMusician);
-        let request_id = object::new(ctx);
-        transfer::share_object(CollaborationRequest {
-            id: request_id,
-            requester: tx_context::sender(ctx),
-            collaborator: collaborator,
-            track_id: object::id(track),
-            accepted: false,
-        });
-    }
-    
-    // Accept collaboration request
-    public entry fun accept_collaboration_request(request: &mut CollaborationRequest, ctx: &mut TxContext) {
-        assert!(request.collaborator == tx_context::sender(ctx), EInvalidMusic);
-        request.accepted = true;
-    }
-
-    // Create an event
-    public entry fun create_event(name: String, description: vector<u8>, tickets: u64, ticketPrice: u64, ctx: &mut TxContext) {
+    // Add an event
+    public entry fun add_event(name: String, description: vector<u8>, tickets: u64, ticketPrice: u64, ctx: &mut TxContext) {
         let event_id = object::new(ctx);
         transfer::share_object(Event {
             id: event_id,
@@ -308,15 +263,107 @@ module music_marketplace::music_marketplace {
         });
     }
 
-    // Buy a ticket for an event
+    // Buy a ticket
     public entry fun buy_ticket(event: &mut Event, ctx: &mut TxContext) {
-        assert!(event.ticketsSold < event.tickets, EInvalidBid);
-        let client_id = object::new(ctx);
-        transfer::share_object(Client {
-            id: client_id,
-            client: tx_context::sender(ctx),
-            track_id: object::id(event),
-        });
+        assert!(event.ticketsSold < event.tickets, ENoTickets);
+        let ticket_price = event.ticketPrice;
+        let payment = coin::take(&mut balance::value(&ctx.sui_balance), ticket_price, ctx);
+        let musician_address = event.musician;
+
         event.ticketsSold = event.ticketsSold + 1;
-    }  
+        transfer::public_transfer(payment, musician_address);
+    }
+
+    // Authenticate user roles
+    public entry fun authenticate_musician(ctx: &TxContext): bool {
+        // Pseudo-code for authentication (replace with actual logic)
+        // Assume some form of verification of the sender address against musician records
+        let sender = tx_context::sender(ctx);
+        let musician_list: vector<address> = vec![ /* List of musician addresses */ ];
+
+        contains(&musician_list, &sender)
+    }
+
+    public entry fun authenticate_client(ctx: &TxContext): bool {
+        // Pseudo-code for authentication (replace with actual logic)
+        // Assume some form of verification of the sender address against client records
+        let sender = tx_context::sender(ctx);
+        let client_list: vector<address> = vec![ /* List of client addresses */ ];
+
+        contains(&client_list, &sender)
+    }
+
+    // Update track status
+    public entry fun update_track_status(cap: &MusicianCap, track: &mut Musician, status: vector<u8>, ctx: &mut TxContext) {
+        assert!(cap.musician_id == object::id(track), ERROR_INVALID_CAP);
+        assert!(track.musician == tx_context::sender(ctx), ENotMusician);
+        track.status = status;
+    }
+
+    // Event Attendance Tracking
+    struct Ticket has key {
+        id: UID,
+        event_id: ID,
+        owner: address,
+    }
+
+    public entry fun issue_ticket(event: &Event, ctx: &mut TxContext) {
+        assert!(event.ticketsSold < event.tickets, ENoTickets);
+
+        let ticket_id = object::new(ctx);
+        let new_ticket = Ticket {
+            id: ticket_id,
+            event_id: object::id(event),
+            owner: tx_context::sender(ctx),
+        };
+
+        event.ticketsSold = event.ticketsSold + 1;
+        transfer::share_object(new_ticket);
+    }
+
+    public entry fun verify_ticket(ticket: &Ticket, event: &Event, ctx: &TxContext): bool {
+        ticket.owner == tx_context::sender(ctx) && ticket.event_id == object::id(event)
+    }
+
+    // Additional improvements to escrow management
+    public entry fun enhanced_withdraw_from_escrow(cap: &MusicianCap, track: &mut Musician, amount: u64, ctx: &mut TxContext) {
+        assert!(cap.musician_id == object::id(track), ERROR_INVALID_CAP);
+        assert!(tx_context::sender(ctx) == track.musician, ENotMusician);
+        assert!(!track.trackSold || !track.dispute, EInvalidWithdrawal);
+        
+        let escrow_amount = balance::value(&track.escrow);
+        assert!(escrow_amount >= amount, EInsufficientEscrow);
+
+        let escrow_coin = coin::take(&mut track.escrow, amount, ctx);
+        transfer::public_transfer(escrow_coin, tx_context::sender(ctx));
+    }
+
+    // Partial refund for dispute resolution
+    public entry fun partial_refund_dispute(track: &mut Musician, client: &Client, refund_amount: u64, ctx: &mut TxContext) {
+        assert!(track.musician == tx_context::sender(ctx), EDispute);
+        assert!(track.dispute, EAlreadyResolved);
+        assert!(object::id(track) == client.track_id, EInvalidBid);
+        
+        let escrow_amount = balance::value(&track.escrow);
+        assert!(escrow_amount >= refund_amount, EInsufficientEscrow);
+
+        let refund_coin = coin::take(&mut track.escrow, refund_amount, ctx);
+        transfer::public_transfer(refund_coin, client.client);
+
+        let remaining_coin = coin::take(&mut track.escrow, escrow_amount - refund_amount, ctx);
+        transfer::public_transfer(remaining_coin, track.musician);
+
+        // Reset track state
+        track.trackSold = false;
+        track.dispute = false;
+    }
+
+    // Add more functions for granular authorization and improved security
+    public entry fun update_musician_profile(cap: &MusicianCap, track: &mut Musician, new_name: String, new_bio: vector<u8>, ctx: &mut TxContext) {
+        assert!(cap.musician_id == object::id(track), ERROR_INVALID_CAP);
+        assert!(track.musician == tx_context::sender(ctx), ENotMusician);
+        
+        track.name = new_name;
+        track.bio = new_bio;
+    }
 }

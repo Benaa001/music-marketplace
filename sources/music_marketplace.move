@@ -19,6 +19,10 @@ module music_marketplace::music_marketplace {
     const EInvalidWithdrawal: u64 = 6;
     const EInsufficientEscrow: u64 = 7;
     const ERROR_INVALID_CAP: u64 = 8;
+    const ENotClient: u64 = 9;
+    const EEventSoldOut: u64 = 10;
+    const EInvalidCollaborationRequest: u64 = 11;
+    const ECollaborationNotAccepted: u64 = 12;
 
     // Struct definitions
 
@@ -56,14 +60,14 @@ module music_marketplace::music_marketplace {
         musician: address,
     }
 
-       // Liquidity Pool struct
+    // Liquidity Pool struct
     struct LiquidityPool has key, store {
         id: UID,
         pool: address,
         balance: Balance<SUI>,
     }
     
-        // Collaboration Request struct
+    // Collaboration Request struct
     struct CollaborationRequest has key, store {
         id: UID,
         requester: address,
@@ -72,7 +76,7 @@ module music_marketplace::music_marketplace {
         accepted: bool,
     }
 
-        // Event struct
+    // Event struct
     struct Event has key, store {
         id: UID,
         musician: address,
@@ -96,17 +100,14 @@ module music_marketplace::music_marketplace {
         track.status
     }
     
-        // Get event description
     public entry fun get_event_description(event: &Event): vector<u8> {
         event.description
     }
 
-    // Get event ticket price
     public entry fun get_event_ticket_price(event: &Event): u64 {
         event.ticketPrice
     }
 
-    // Get event tickets sold
     public entry fun get_event_tickets_sold(event: &Event): u64 {
         event.ticketsSold
     }
@@ -310,7 +311,7 @@ module music_marketplace::music_marketplace {
 
     // Buy a ticket for an event
     public entry fun buy_ticket(event: &mut Event, ctx: &mut TxContext) {
-        assert!(event.ticketsSold < event.tickets, EInvalidBid);
+        assert!(event.ticketsSold < event.tickets, EEventSoldOut);
         let client_id = object::new(ctx);
         transfer::share_object(Client {
             id: client_id,
@@ -318,5 +319,21 @@ module music_marketplace::music_marketplace {
             track_id: object::id(event),
         });
         event.ticketsSold = event.ticketsSold + 1;
-    }  
+    }
+
+    // Cancel an event
+    public entry fun cancel_event(event: &mut Event, ctx: &mut TxContext) {
+        assert!(event.musician == tx_context::sender(ctx), ENotMusician);
+        // Logic to handle refunds and other necessary actions can be added here
+        transfer::delete_object(object::id(event));
+    }
+
+    // Withdraw event earnings
+    public entry fun withdraw_event_earnings(event: &mut Event, ctx: &mut TxContext) {
+        assert!(event.musician == tx_context::sender(ctx), ENotMusician);
+        let earnings = event.ticketPrice * event.ticketsSold;
+        let earnings_coin = coin::mint(earnings, ctx);
+        transfer::public_transfer(earnings_coin, event.musician);
+        event.ticketsSold = 0;
+    }
 }
